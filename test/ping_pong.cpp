@@ -2,7 +2,7 @@
 
 #include <iostream>
 #include <thread>
-#include <array>
+#include <vector>
 #include <mutex>
 #include <condition_variable>
 #include <stdexcept>
@@ -39,18 +39,18 @@ public:
 };
 
 int main(){
-	constexpr std::size_t n_threads = 4;
+	const std::size_t n_threads = std::thread::hardware_concurrency() - 1; // One for main thread
 	constexpr std::size_t n_loops = 1000000;
 
 	std::atomic<std::size_t> n_ping(0), n_pong(0);
 
-	std::array<std::thread, n_threads> threads;
+	std::vector<std::thread> threads(n_threads);
 	semaphore sem_g;
-	std::array<semaphore, n_threads> sems;
+	std::vector<semaphore> sems(n_threads);
 	for(std::size_t i = 0; i < n_threads; ++i){
-		threads.at(i) = std::thread([&,i]{
+		threads[i] = std::thread([&, i]{
 			for(std::size_t j = 0; j < n_loops; ++j){
-				sems.at(i).p();
+				sems[i].p();
 				n_pong.fetch_add(1, std::memory_order_relaxed);
 				sem_g.v();
 			}
@@ -58,17 +58,17 @@ int main(){
 	}
 	const auto t1 = std::chrono::high_resolution_clock::now();
 	for(std::size_t j = 0; j < n_loops; ++j){
-		for(std::size_t i = 0; i < n_threads; ++i){
+		for(auto&& sem : sems) {
 			n_ping.fetch_add(1, std::memory_order_relaxed);
-			sems.at(i).v();
+			sem.v();
 		}
-		for(std::size_t i = 0; i < n_threads; ++i){
+		for(std::size_t i = 0; i < n_threads; ++i) {
 			sem_g.p();
 		}
 	}
 	const auto t2 = std::chrono::high_resolution_clock::now();
-	for(std::size_t i = 0; i < n_threads; ++i){
-		threads.at(i).join();
+	for(auto&& thread : threads){
+		thread.join();
 	}
 
 	std::cout <<"n_ping = " <<n_ping.load(std::memory_order_relaxed) <<std::endl
